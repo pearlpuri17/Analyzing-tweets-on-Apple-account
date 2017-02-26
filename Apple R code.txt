@@ -1,0 +1,141 @@
+install.packages("tm")
+install.packages("SnowballC")
+install.packages("rpart.plot")
+install.packages("randomForest")
+library(tm)
+library(SnowballC)
+library(caTools)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+path = "C:/Users/pearl/Downloads/Analytics edge/Text Analytics"
+setwd(path)
+tweets = read.csv("tweets.csv", stringsAsFactors = FALSE)
+
+#always need to add stringsAsFactors when working with text analytics problem
+
+str(tweets)
+tweets$Negative = as.factor(tweets$Avg <= -1)
+
+#Sets this variable as true when avg <=1 else false
+
+table(tweets$Negative)
+
+# corpus is a collection of documents. Need to convert tweets to corpus
+
+corpus = Corpus(VectorSource(tweets$Tweet))
+corpus
+corpus[[1]]$content
+
+#convert all text to lower case
+#tm_map is just like apply in R
+#We use content_transformer because tolower is not included in tm package but rather a part of base R
+corpus = tm_map(corpus, content_transformer(tolower))
+
+#converting all text to plaintextdocument
+
+corpus = tm_map(corpus, PlainTextDocument)
+corpus[[1]]$content
+
+# Removing punctuation from the text
+
+corpus = tm_map(corpus, removePunctuation)
+corpus[[1]]$content
+#Now we will remove stop words which donot help our prediction
+#lets see some of these stop words
+
+stopwords("english")[1:10]
+
+#But we also need to remove apple in addition to these as all tweets are for apple
+#below command means remove words from corpus-apple and the normal stopwords in english variable
+corpus = tm_map(corpus, removeWords,c("apple", stopwords("english") ))
+corpus[[1]]$content
+
+#lastly we need to stem document
+
+corpus = tm_map(corpus,stemDocument)
+corpus[[1]]$content
+
+# Lets create a matrix with tweeet, associated words and number of times the word comes
+
+frequencies = DocumentTermMatrix(corpus)
+frequencies
+
+#we will use inspect function to check the matrix
+# checking docs 1000 to 1005 and words 505-515
+inspect(frequencies[1000:1005], 505:515)
+
+#finding famous words
+
+findFreqTerms(frequencies, lowfreq = 20)
+
+#56 words come 20 times and more
+# keep tweets which are above sparcity threshhold
+#keep terms that appear in 1% or more tweets
+sparse = removeSparseTerms(frequencies, 0.995)
+sparse
+
+#lets convert this to a data matrix to build model onn it
+
+tweetsSparse = as.data.frame(as.matrix(sparse))
+
+#some of our variable names start from number so to fix that we will use make.names function to make sure our names are right
+
+colnames(tweetsSparse) = make.names(colnames(tweetsSparse)) 
+
+#always do this while building data frame using text analytics
+
+tweetsSparse$Negative = tweets$Negative
+set.seed(123)
+spl = sample.split(tweetsSparse$Negative, SplitRatio = 0.7)
+train = subset(tweetsSparse, spl == TRUE)
+test = subset(tweetsSparse, spl == FALSE)
+
+findFreqTerms(frequencies, lowfreq = 100)
+
+# now we will build predictive model
+
+tweetCart = rpart(Negative~., data = train, method = "class")
+
+#plot the tree using prp function
+
+prp(tweetCart)
+
+#predicting
+
+predictCart = predict(tweetCart, newdata = test, type = "class")
+
+#lets create a confusion matrix for it
+
+table(test$Negative, predictCart)
+
+#accuracy
+
+(294+18)/(294+18+37+6)
+
+# now lets test it against the baseline model
+
+table(test$Negative)
+300/355
+
+# now lets create a random forest model
+set.seed(123)
+
+tweetrf = randomForest(Negative~., data = train)
+predictrf = predict(tweetrf, newdata = test)
+table(test$Negative, predictrf)
+(293+21)/(293+21+34+7)
+
+# Although the model is better than the cart model, yet more interpretability makes it better
+
+# lets try building a logistic regression model
+
+tweetlog = glm(Negative~., data = train, family = "binomial")
+predictlog = predict(tweetlog, newdata = test, type = "response")
+head(predictlog)
+table(test$Negative, predictlog>0.5)
+
+#accuracy
+(253+33)/(253+33+47+22)
+# logistic regression model struggles when the number of variables are large
+
